@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Deriv Digits Entry Analyzer V3</title>
+<style>
+:root{--bg:#090d14;--card:#151c27;--card2:#0e141d;--line:#263244;--text:#f2f5f8;--muted:#9aa7b7;--accent:#f13d5b;--good:#39d98a;--warn:#ffd166;--bad:#ff6b6b;--blue:#65a9ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,sans-serif}
+.wrap{max-width:760px;margin:auto;padding:16px}.title{font-size:23px;font-weight:800}.sub{color:var(--muted);font-size:13px;margin-top:4px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:14px 0}
+label{display:block;color:var(--muted);font-size:13px;margin:10px 0 6px}
+input,select,button{width:100%;border:1px solid var(--line);border-radius:10px;padding:13px;background:var(--card2);color:var(--text);font-size:15px}
+button{cursor:pointer;font-weight:800;background:var(--accent);border:0;margin-top:10px}button.secondary{background:#303b4b}button.small{width:auto;padding:9px 12px;margin:0}
+.status{padding:12px;border-radius:10px;background:var(--card2);margin-top:12px;font-weight:700}
+.status.ok{color:var(--good)}.status.err{color:var(--bad)}.status.wait{color:var(--warn)}
+.signal{border-radius:14px;padding:18px;text-align:center;background:var(--card2);border:1px solid var(--line)}
+.signal .big{font-size:25px;font-weight:900}.signal .small{margin-top:8px;color:var(--muted);font-size:13px}
+.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}.blue{color:var(--blue)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.stat{background:var(--card2);padding:13px;border-radius:12px;text-align:center}.stat b{display:block;font-size:22px;margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:9px 5px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--muted)}
+.digits{display:grid;grid-template-columns:repeat(10,1fr);gap:5px;margin-top:10px}.digit{background:var(--card2);padding:8px 2px;border-radius:8px;text-align:center;font-size:12px}.digit b{display:block;font-size:17px}.hot{outline:2px solid var(--good)}.cold{outline:2px solid var(--blue)}
+.history{max-height:150px;overflow:auto;font-family:monospace;font-size:12px;color:var(--muted);line-height:1.7}
+.note{font-size:12px;color:var(--muted);line-height:1.5}.pill{display:inline-block;padding:4px 8px;border-radius:20px;background:#202b3a;color:var(--muted);font-size:11px;margin:2px}
+@media(max-width:450px){.wrap{padding:10px}.digits{gap:3px}.digit{padding:7px 1px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="title">📊 Deriv Digits Entry Analyzer V3</div>
+  <div class="sub">Matches & Differs • live ticks • historical preload • paper-entry signals</div>
+
+  <div class="card">
+    <label>Market symbol</label>
+    <input id="symbol" value="R_50" placeholder="Example: R_50">
+    <label>Analysis window</label>
+    <select id="window">
+      <option>100</option><option selected>200</option><option>500</option><option>1000</option>
+    </select>
+    <label>Signal mode</label>
+    <select id="mode">
+      <option value="both">Matches + Differs</option>
+      <option value="match">Matches only</option>
+      <option value="diff">Differs only</option>
+    </select>
+    <label>Minimum signal score</label>
+    <select id="threshold"><option>70</option><option selected>75</option><option>80</option><option>85</option></select>
+    <div class="grid">
+      <button onclick="start()">START V3</button>
+      <button class="secondary" onclick="stop()">STOP</button>
+    </div>
+    <div id="status" class="status wait">Not connected.</div>
+  </div>
+
+  <div class="card">
+    <div id="signal" class="signal">
+      <div class="big warn">WAITING FOR DATA…</div>
+      <div class="small">V3 will preload historical ticks, then continue with live ticks.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="grid">
+      <div class="stat">Ticks analyzed<b id="count">0</b></div>
+      <div class="stat">Last digit<b id="last">–</b></div>
+      <div class="stat">Match candidate<b id="match">–</b></div>
+      <div class="stat">Differ candidate<b id="diff">–</b></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🎯 Signal components</h3>
+    <table>
+      <tr><th>Measure</th><th>Result</th></tr>
+      <tr><td>Top match frequency</td><td id="mf">–</td></tr>
+      <tr><td>Recent 20</td><td id="recent">–</td></tr>
+      <tr><td>Current streak</td><td id="streak">–</td></tr>
+      <tr><td>Last occurrence</td><td id="ago">–</td></tr>
+      <tr><td>Match score</td><td id="ms">–</td></tr>
+      <tr><td>Differ score</td><td id="ds">–</td></tr>
+      <tr><td>Agreement</td><td id="agree">–</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>🔢 Digit distribution</h3>
+    <div id="digits" class="digits"></div>
+    <div class="note" style="margin-top:10px">Green outline = match candidate. Blue outline = differ candidate. 10% is the neutral reference for a uniform digit stream.</div>
+  </div>
+
+  <div class="card">
+    <h3>🧪 Paper-signal tracker</h3>
+    <div class="grid">
+      <div class="stat">Signals<b id="sigN">0</b></div>
+      <div class="stat">Wins<b id="sigW">0</b></div>
+      <div class="stat">Losses<b id="sigL">0</b></div>
+      <div class="stat">Win rate<b id="sigR">–</b></div>
+    </div>
+    <div class="note" style="margin-top:10px">This tracks only V3's own paper signals against the next tick. It does not place trades.</div>
+  </div>
+
+  <div class="card">
+    <h3>🧾 Recent ticks</h3>
+    <div id="history" class="history">No ticks yet.</div>
+  </div>
+
+  <div class="card">
+    <div class="note">
+      <b>Important:</b> A signal is a statistical setup, not a guaranteed prediction. A digit can be over/under-represented by chance and still appear or fail on the next tick. Test on demo/paper first.
+      <br><br>
+      V3 uses public market data only. No Deriv password, API token, or account connection is requested.
+    </div>
+  </div>
+</div>
+
+<script>
+let ws=null, running=false, ticks=[], pending=null, signalStats={n:0,w:0,l:0};
+const $=id=>document.getElementById(id);
+const NEW='wss://api.derivws.com/trading/v1/options/ws/public';
+const LEGACY='wss://ws.binaryws.com/websockets/v3';
+
+function setStatus(t,c='wait'){$('status').textContent=t;$('status').className='status '+c}
+function getWin(){return +$('window').value}
+function digitFromTick(t){
+  let q=t.quote;
+  if(q===undefined||q===null)return null;
+  let s;
+  if(t.pip_size!==undefined && Number.isInteger(t.pip_size)){
+    s=Number(q).toFixed(t.pip_size);
+  }else{
+    s=String(q);
+    if(!s.includes('.')) s=Number(q).toFixed(5);
+  }
+  let m=s.match(/(\d)\s*$/);
+  return m?+m[1]:null;
+}
+function addTick(t){
+  const d=digitFromTick(t); if(d===null)return;
+  ticks.push({d,q:t.quote,time:t.epoch||Date.now()/1000});
+  const max=Math.max(getWin(),1000);
+  if(ticks.length>max)ticks=ticks.slice(-max);
+  evaluatePaper(d);
+  render();
+}
+function freq(arr){
+  const f=Array(10).fill(0);arr.forEach(x=>f[x.d]++);
+  return f;
+}
+function streak(arr,d){
+  let n=0;for(let i=arr.length-1;i>=0&&arr[i].d===d;i--)n++;return n;
+}
+function lastAgo(arr,d){
+  for(let i=arr.length-1,ago=0;i>=0;i--,ago++)if(arr[i].d===d)return ago;
+  return null;
+}
+function scoreData(arr){
+  if(arr.length<30)return null;
+  const long=arr.slice(-getWin()), recent=arr.slice(-20);
+  const fl=freq(long), fr=freq(recent), n=long.length;
+  let top=0,bottom=0;
+  for(let d=1;d<10;d++){if(fl[d]>fl[top])top=d;if(fl[d]<fl[bottom])bottom=d}
+  const topRate=fl[top]/n, bottomRate=fl[bottom]/n;
+  const recentTop=fr.indexOf(Math.max(...fr));
+  const recentBottom=fr.indexOf(Math.min(...fr));
+  const topExcess=Math.max(0,(topRate-.10)/.10);
+  const topRecent=Math.max(0,(fr[top]/20-.10)/.20);
+  const bottomWeak=Math.max(0,(.10-bottomRate)/.10);
+  const bottomRecent=Math.max(0,(.10-fr[bottom]/20)/.20);
+  const topAgree=recentTop===top?1:0;
+  const botAgree=recentBottom===bottom?1:0;
+  let ms=Math.min(100,Math.round(40*topExcess+20*topRecent+20*topAgree+20*Math.min(1,streak(long,top)/4)));
+  let ds=Math.min(100,Math.round(40*bottomWeak+20*bottomRecent+20*botAgree+20*Math.min(1,lastAgo(long,bottom)/20||1)));
+  return {long,recent,fl,fr,top,bottom,topRate,bottomRate,recentTop,recentBottom,ms,ds};
+}
+function makeSignal(x){
+  if(!x)return {type:'WAIT',digit:null,score:0,why:'Collecting enough tick data'};
+  const th=+$('threshold').value, mode=$('mode').value;
+  const matchOK=x.ms>=th && x.recentTop===x.top;
+  const diffOK=x.ds>=th && x.recentBottom===x.bottom;
+  if(mode!=='diff'&&matchOK&&x.ms>=x.ds)return {type:'MATCH',digit:x.top,score:x.ms,why:'Long-window frequency + recent agreement'};
+  if(mode!=='match'&&diffOK&&x.ds>x.ms)return {type:'DIFFER',digit:x.bottom,score:x.ds,why:'Under-representation + recent agreement'};
+  return {type:'WAIT',digit:null,score:Math.max(x.ms,x.ds),why:'No setup reached the selected threshold'};
+}
+function evaluatePaper(newDigit){
+  if(!pending)return;
+  signalStats.n++;
+  const won=pending.type==='MATCH'?newDigit===pending.digit:newDigit!==pending.digit;
+  won?signalStats.w++:signalStats.l++;
+  pending=null;
+}
+function render(){
+  const n=ticks.length, x=scoreData(ticks), s=makeSignal(x);
+  $('count').textContent=n;$('last').textContent=n?ticks[n-1].d:'–';
+  if(!x){
+    $('match').textContent='–';$('diff').textContent='–';
+    $('signal').innerHTML='<div class="big warn">WAITING FOR DATA…</div><div class="small">Need more tick history.</div>';
+    return;
+  }
+  $('match').textContent=x.top;$('diff').textContent=x.bottom;
+  $('mf').textContent=(x.topRate*100).toFixed(1)+'% (digit '+x.top+')';
+  $('recent').textContent='top '+x.recentTop+' • low '+x.recentBottom;
+  $('streak').textContent=x.top+' = '+streak(x.long,x.top)+' in a row';
+  $('ago').textContent='digit '+x.top+': '+(lastAgo(x.long,x.top)??'—')+' ticks ago';
+  $('ms').textContent=x.ms+'/100';$('ds').textContent=x.ds+'/100';
+  $('agree').textContent=(x.recentTop===x.top?'MATCH ✓':'MATCH ✗')+' / '+(x.recentBottom===x.bottom?'DIFFER ✓':'DIFFER ✗');
+  let cls=s.type==='MATCH'?'good':s.type==='DIFFER'?'blue':'warn';
+  let title=s.type==='WAIT'?'WAIT — NO CLEAR ENTRY':s.type==='MATCH'?'PAPER ENTRY: MATCH '+s.digit:'PAPER ENTRY: DIFFER '+s.digit;
+  $('signal').innerHTML='<div class="big '+cls+'">'+title+'</div><div class="small">Score '+s.score+'/100 • '+s.why+'</div>';
+  if(s.type!=='WAIT' && (!pending || pending.type!==s.type || pending.digit!==s.digit)){
+    pending={type:s.type,digit:s.digit};
+  }
+  $('sigN').textContent=signalStats.n;$('sigW').textContent=signalStats.w;$('sigL').textContent=signalStats.l;
+  $('sigR').textContent=signalStats.n?(signalStats.w/signalStats.n*100).toFixed(1)+'%':'–';
+  const f=x.fl;let dhtml='';
+  for(let d=0;d<10;d++){
+    const hot=d===x.top,cold=d===x.bottom;
+    dhtml+='<div class="digit '+(hot?'hot ':'')+(cold?'cold':'')+'"><b>'+d+'</b>'+f[d]+'<br><span>'+((f[d]/n)*100).toFixed(1)+'%</span></div>';
+  }
+  $('digits').innerHTML=dhtml;
+  $('history').innerHTML=ticks.slice(-40).reverse().map((z,i)=>'<div>'+new Date(z.time*1000).toLocaleTimeString()+' — quote '+z.q+' → <b>'+z.d+'</b></div>').join('');
+}
+function send(wsObj,obj){try{wsObj.send(JSON.stringify(obj))}catch(e){}}
+function connect(endpoint){
+  return new Promise((resolve,reject)=>{
+    let w;
+    try{w=new WebSocket(endpoint)}catch(e){reject(e);return}
+    let opened=false;
+    const timer=setTimeout(()=>{if(!opened){try{w.close()}catch(e){}reject(new Error('connection timeout'))}},7000);
+    w.onopen=()=>{
+      opened=true;clearTimeout(timer);ws=w;
+      resolve(w);
+    };
+    w.onerror=()=>{if(!opened){clearTimeout(timer);reject(new Error('WebSocket connection failed'))}};
+    w.onclose=()=>{if(running){setStatus('Connection closed. Tap START V3 to reconnect.','err')}};
+  });
+}
+async function start(){
+  stop(false); running=true; ticks=[];pending=null;signalStats={n:0,w:0,l:0};render();
+  const symbol=$('symbol').value.trim()||'R_50';
+  setStatus('Connecting to Deriv public market data…','wait');
+  let w;
+  try{w=await connect(NEW);setStatus('Connected ✓ — loading tick history…','ok')}
+  catch(e){
+    try{w=await connect(LEGACY);setStatus('Connected ✓ — using compatible market-data endpoint…','ok')}
+    catch(e2){running=false;setStatus('Could not connect. Try Chrome with internet on, then START V3 again.','err');return}
+  }
+  w.onmessage=(ev)=>{
+    let data;try{data=JSON.parse(ev.data)}catch(e){return}
+    if(data.error){setStatus('Deriv error: '+(data.error.message||'invalid request'),'err');return}
+    if(data.msg_type==='history'&&data.history&&Array.isArray(data.history.prices)){
+      const prices=data.history.prices,times=data.history.times||[];
+      prices.forEach((q,i)=>{
+        let t={quote:q,epoch:times[i]};
+        const d=digitFromTick(t);if(d!==null)ticks.push({d,q,time:t.epoch||Date.now()/1000});
+      });
+      ticks=ticks.slice(-getWin());render();
+      setStatus('Connected ✓ — live ticks running','ok');
+    }
+    if(data.msg_type==='tick'&&data.tick)addTick(data.tick);
+  };
+  // Legacy and current public market-data APIs support the ticks/ticks_history message family.
+  send(w,{ticks_history:symbol,end:'latest',count:getWin(),style:'ticks',subscribe:0,req_id:101});
+  send(w,{ticks:symbol,subscribe:1,req_id:102});
+}
+function stop(change=true){
+  running=false;if(ws){try{ws.close()}catch(e){}ws=null}
+  if(change)setStatus('Stopped.','wait');
+}
+render();
+</script>
+</body>
+</html>
